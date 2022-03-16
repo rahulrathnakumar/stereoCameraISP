@@ -2,7 +2,9 @@ import pyrealsense2 as rs
 import time
 import json
 import atexit
-
+import cv2
+import numpy as np
+import itertools
 
 '''
 Required class functionality:
@@ -65,7 +67,31 @@ class Camera(rs.pipeline, rs.config, rs.rs400_advanced_mode):
         self.start(self)
     def stop_camera(self):
         self.stop()
-    def get_depth_sensor_params(self, params = None):
+
+    def query_sensor_param_bounds(self, params = None, arrayFmt = True):
+        '''
+        Input: params (Optional): List of requested parameters
+        arrayFmt (Default : True): Bool, if return value should be dict or array
+        Returns: Upper and Lower bounds of sensor parameters
+        '''
+        # Basic options
+        exposure_min, exposure_max = self.device.query_sensors()[0].get_option_range(rs.option.exposure).min, ...
+        self.device.query_sensors()[0].get_option_range(rs.option.exposure).max
+        gain_min, gain_max = self.device.query_sensors()[0].get_option_range(rs.option.gain).min, ...
+        self.device.query_sensors()[0].get_option_range(rs.option.gain).max
+        laser_power_min, laser_power_max = self.device.query_sensors()[0].get_option_range(rs.option.laser_power).min, ...
+        self.device.query_sensors()[0].get_option_range(rs.option.laser_power).max
+        # Advanced params
+        depth_control_min, depth_control_max = self.get_depth_control(1), self.get_depth_control(2)
+        depth_control_attrs = [d for d in dir(depth_control_min) if not d.startswith('__')]
+        depth_control_min, depth_control_max = [depth_control_min.__getattribute__(d) for d in depth_control_attrs], [depth_control_max.__getattribute__(d) for d in depth_control_attrs]
+        min = [[exposure_min], [gain_min], [laser_power_min], depth_control_min]
+        min = list(itertools.chain.from_iterable(min))
+        max = [[exposure_max], [gain_max], [laser_power_max], depth_control_max]
+        max = list(itertools.chain.from_iterable(max))
+        return min, max
+
+    def get_depth_sensor_params(self, params = None, arrayFmt = True):
         '''
         Streams all relevant parameters. [Expandable]
         Current parameter list:
@@ -111,6 +137,7 @@ class Camera(rs.pipeline, rs.config, rs.rs400_advanced_mode):
         self.load_json(json_string)
     def save_json_file(self, params = None):
         print("NotImplemented.")
+    # Streaming functions with opencv
     # Helpers
     def __get_camera_info__(self, arg):
         return rs.camera_info(arg)

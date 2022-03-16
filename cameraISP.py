@@ -1,19 +1,34 @@
 import numpy as np
+import cv2
+from scipy.interpolate import LinearNDInterpolator
 
 from Camera import *
 
 
 def compute_fill_factor(imgs):
-    return fill_factor
+    '''
+    Given K frames, compute time-averaged fill factor fitness.
+    Input: imgs: KxWxH array : either RoI or entire Image
+    Returns: fill_factor_cost
+    '''
+    # For one frame
+    num_filled = np.asarray([np.count_nonzero(img) for img in imgs])
+    fill_factor = np.asarray([(nf/(imgs.shape[1]*imgs.shape[2])) for nf in num_filled])
+    fill_factor_cost = np.mean(np.asarray([-np.log(f) for f in fill_factor]))
+    return fill_factor_cost
 
 
 def compute_mean(imgs):
     return mean
 
 def compute_variance(imgs):
+
     return variance
 
 def compute_energy(imgs):
+    '''
+    Custom energy function
+    '''
     return energy
 
 
@@ -38,30 +53,28 @@ def compute_fitness(depth, roi = None):
     # model the image quality in relation to metrology?
     fitness_metrology = compute_energy(roi_depth)
 
-
     return fitness
 
 
 camera = Camera()
 camera.start_camera()
+camera.load_preset('HighAccuracyPreset.json')
 # Get depth data for 'k' frames
-k = 10
-count = 0
-depth_frameset = []
-while count < k:
-        # This call waits until a new coherent set of frames is available on a device
-        # Calls to get_frame_data(...) and get_frame_timestamp(...) on a device will return stable values until wait_for_frames(...) is called
-        frames = camera.wait_for_frames()
-        print(frames.get_timestamp())
-        depth = frames.get_depth_frame()
-        depth_frameset.append(depth)
-        # Get current parameter set
-        print(camera.get_depth_sensor_params())
-        count = count + 1
-        # Compute depth loss
-        loss = compute_loss(depth)
-
-        if not depth: continue
-
-camera.stop()
-exit(0)
+k = 1
+try:
+    while True:
+        depth_frameset = []
+        count = 0
+        while count < k:
+            # This call waits until a new coherent set of frames is available on a device
+            # Calls to get_frame_data(...) and get_frame_timestamp(...) on a device will return stable values until wait_for_frames(...) is called
+            frames = camera.wait_for_frames()
+            depth = np.asarray(frames.get_depth_frame().get_data())
+            depth_frameset.append(depth)
+            # Get current parameter set
+            count = count + 1
+        depth_frameset = np.asarray(depth_frameset)
+        fill_factor_cost = compute_fill_factor(depth_frameset)
+    
+finally:
+    camera.stop()
