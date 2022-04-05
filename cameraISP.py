@@ -66,15 +66,16 @@ try:
         depth_frameset = []
         count = 0
         while count < k:
-            # This call waits until a new coherent set of frames is available on a device
-            # Calls to get_frame_data(...) and get_frame_timestamp(...) on a device will return stable values until wait_for_frames(...) is called
             frames = camera.wait_for_frames()
             depth = np.asarray(frames.get_depth_frame().get_data())
             depth_frameset.append(depth)
-            # Get current parameter set
             count = count + 1
         depth_frameset = np.asarray(depth_frameset)
         fill_factor_cost = compute_fill_factor(depth_frameset)
+        params_min, params_max = camera.query_sensor_param_bounds()
+        
+
+
     
 finally:
     camera.stop()
