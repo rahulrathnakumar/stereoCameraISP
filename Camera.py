@@ -1,3 +1,4 @@
+from ssl import get_default_verify_paths
 import pyrealsense2 as rs        
 import time
 import json
@@ -11,6 +12,8 @@ Required class functionality:
 Camera class should create an object that can stream depth data and all params in real-time.
 '''
 
+def get_attributes(obj):
+    return [a for a in dir(obj) if not a.startswith('__') and not callable(getattr(obj, a))]
 
 class Camera(rs.pipeline, rs.config, rs.rs400_advanced_mode):
     '''
@@ -44,7 +47,7 @@ class Camera(rs.pipeline, rs.config, rs.rs400_advanced_mode):
         rs.rs400_advanced_mode.__init__(self, devices[0])
         # Parameter attribute for depth sensor
         self.param_dict = self.get_depth_sensor_params()
-    def start_camera(self, height = 1280, width = 720, framerate = 30, streams = None):
+    def start_camera(self, height = 640, width = 480, framerate = 30, streams = None):
         '''
         Start camera streams specified by list streams:
         Arguments: 
@@ -61,10 +64,8 @@ class Camera(rs.pipeline, rs.config, rs.rs400_advanced_mode):
         if streams == None:
             self.enable_stream(rs.stream.depth, height, width, rs.format.z16, framerate)
             self.enable_stream(rs.stream.color, height, width, rs.format.rgb8, framerate)
-            self.enable_stream(rs.stream.infrared, height, width, framerate = framerate)
-        else:
-            print("NotImplemented.")
-        self.start(self)
+            self.enable_stream(rs.stream.infrared, height, width, framerate)
+        self.start()
     def stop_camera(self):
         self.stop()
 
@@ -75,22 +76,18 @@ class Camera(rs.pipeline, rs.config, rs.rs400_advanced_mode):
         Returns: Upper and Lower bounds of sensor parameters
         '''
         # Basic options
-        exposure_min, exposure_max = self.device.query_sensors()[0].get_option_range(rs.option.exposure).min, ...
-        self.device.query_sensors()[0].get_option_range(rs.option.exposure).max
-        gain_min, gain_max = self.device.query_sensors()[0].get_option_range(rs.option.gain).min, ...
-        self.device.query_sensors()[0].get_option_range(rs.option.gain).max
-        laser_power_min, laser_power_max = self.device.query_sensors()[0].get_option_range(rs.option.laser_power).min, ...
-        self.device.query_sensors()[0].get_option_range(rs.option.laser_power).max
+        exposure_min, exposure_max = self.device.query_sensors()[0].get_option_range(rs.option.exposure).min, self.device.query_sensors()[0].get_option_range(rs.option.exposure).max
+        gain_min, gain_max = self.device.query_sensors()[0].get_option_range(rs.option.gain).min, self.device.query_sensors()[0].get_option_range(rs.option.gain).max
+        laser_power_min, laser_power_max = self.device.query_sensors()[0].get_option_range(rs.option.laser_power).min, self.device.query_sensors()[0].get_option_range(rs.option.laser_power).max
         # Advanced params
         depth_control_min, depth_control_max = self.get_depth_control(1), self.get_depth_control(2)
         depth_control_attrs = [d for d in dir(depth_control_min) if not d.startswith('__')]
         depth_control_min, depth_control_max = [depth_control_min.__getattribute__(d) for d in depth_control_attrs], [depth_control_max.__getattribute__(d) for d in depth_control_attrs]
-        min = [[exposure_min], [gain_min], [laser_power_min], depth_control_min]
+        min = [[exposure_min], [gain_min], [laser_power_min]]
         min = list(itertools.chain.from_iterable(min))
-        max = [[exposure_max], [gain_max], [laser_power_max], depth_control_max]
+        max = [[exposure_max], [gain_max], [laser_power_max]]
         max = list(itertools.chain.from_iterable(max))
-        return min, max
-
+        return np.asarray(min), np.asarray(max)
     def get_depth_sensor_params(self, params = None, arrayFmt = True):
         '''
         Streams all relevant parameters. [Expandable]
@@ -103,34 +100,51 @@ class Camera(rs.pipeline, rs.config, rs.rs400_advanced_mode):
         exposure = self.depth_sensor.get_option(rs.option.exposure)
         gain = self.depth_sensor.get_option(rs.option.gain)
         laser_power = self.depth_sensor.get_option(rs.option.laser_power)
-        # emitter_enabled = self.depth_sensor.get_option(rs.option.emitter_enabled)
-        basic_options_dict = dict({'depthUnits': depth_units, 'exposure': exposure, 'gain': gain, 'laserPower': laser_power})
         # Depth sensor - advanced 
         depth_control = self.get_depth_control() # object depth_control of class rs.STDepthControlGroup. Access attributes separately?
         depth_control_attrs = [d for d in dir(depth_control) if not d.startswith('__')]
         depth_control_vals = [depth_control.__getattribute__(d) for d in depth_control_attrs]
-        depth_control_dict = {'STDepthControlGroup': {depth_control_attrs[i]: depth_control_vals[i] for i in range(len(depth_control_attrs))}}
+        
         depth_table = self.get_depth_table() 
         depth_table_attrs = [d for d in dir(depth_table) if not d.startswith('__')]
         depth_table_vals = [depth_table.__getattribute__(d) for d in depth_table_attrs]
-        depth_table_dict = {'STDepthTableControl': {depth_table_attrs[i]: depth_table_vals[i] for i in range(len(depth_table_attrs))}}
-        # Param dict
-        param_dict = basic_options_dict
-        # param_dict.update(basic_options_dict)
-        param_dict.update(depth_control_dict)
-        param_dict.update(depth_table_dict)
-        return param_dict
-    def set_depth_sensor_params(self, param_dict, get = True):
+        if arrayFmt == False:
+            # emitter_enabled = self.depth_sensor.get_option(rs.option.emitter_enabled)
+            basic_options_dict = dict({'depthUnits': depth_units, 'exposure': exposure, 'gain': gain, 'laserPower': laser_power})
+            depth_control_dict = {'STDepthControlGroup': {depth_control_attrs[i]: depth_control_vals[i] for i in range(len(depth_control_attrs))}}
+            depth_table_dict = {'STDepthTableControl': {depth_table_attrs[i]: depth_table_vals[i] for i in range(len(depth_table_attrs))}}
+            # Param dict
+            param_dict = basic_options_dict
+            param_dict.update(basic_options_dict)
+            param_dict.update(depth_control_dict)
+            param_dict.update(depth_table_dict)
+            return param_dict
+        else:
+            params = [[exposure], [gain], [laser_power]]
+            params = list(itertools.chain.from_iterable(params))
+            # params = exposure
+            return np.asarray(params)
+    def set_depth_sensor_params(self, params, set_and_get = True):
         '''
         Update depth sensor with new params
-
-        Input: params: Dict of updated params
+        Order: Exposure, Gain, Laser_Power, depth_control - Need to
+        implement verification for this order somehow...
+        Input: params: Array of updated params in exact order
         Return: None or params depending on get
         '''
+        STdepthControlGroup = rs.STDepthControlGroup()
+        basic_params = params[0], params[1], params[2]
+        # depthControlParams = params[3:13]
         # Basic param update
-        self.depth_sensor.set_option(rs.option.depth_units, param_dict[''])
-        # Advanced param groups update
-        # First update rs 
+        self.depth_sensor.set_option(rs.option.exposure, params[0])
+        self.depth_sensor.set_option(rs.option.gain, basic_params[1])
+        self.depth_sensor.set_option(rs.option.laser_power, basic_params[2])
+        # # Advanced param update
+        # for i, attr in enumerate(get_attributes(STdepthControlGroup)):
+        #     setattr(STdepthControlGroup, attr, int(depthControlParams[i]))
+        # self.set_depth_control(STdepthControlGroup)
+        if set_and_get:
+            return self.get_depth_sensor_params()
     def load_preset(self, file):
         jsonObj = json.load(open(file))
         json_string = str(jsonObj).replace("'", '\"')
